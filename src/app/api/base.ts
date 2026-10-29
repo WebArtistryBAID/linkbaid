@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import {NextResponse} from 'next/server'
 
 export function unauthorized(): NextResponse {
     return NextResponse.json(

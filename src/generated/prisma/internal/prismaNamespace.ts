@@ -16,7 +16,7 @@
 
 import * as runtime from '@prisma/client/runtime/client'
 import type * as Prisma from '../models'
-import { type PrismaClient } from './class'
+import {type PrismaClient} from './class'
 
 export type * from '../models'
 
@@ -308,7 +308,7 @@ export type Not<B extends Boolean> = {
     1: 0
 }[B]
 
-export type Extends<A1 extends any, A2 extends any> = [ A1 ] extends [ never ]
+export type Extends<A1 extends any, A2 extends any> = [A1] extends [never]
     ? 0 // anything `never` is false
     : A1 extends A2
         ? 1
@@ -935,19 +935,19 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         payload: any
         operations: {
             $executeRaw: {
-                args: [ query: TemplateStringsArray | Sql, ...values: any[] ],
+                args: [query: TemplateStringsArray | Sql, ...values: any[]],
                 result: any
             }
             $executeRawUnsafe: {
-                args: [ query: string, ...values: any[] ],
+                args: [query: string, ...values: any[]],
                 result: any
             }
             $queryRaw: {
-                args: [ query: TemplateStringsArray | Sql, ...values: any[] ],
+                args: [query: TemplateStringsArray | Sql, ...values: any[]],
                 result: any
             }
             $queryRawUnsafe: {
-                args: [ query: string, ...values: any[] ],
+                args: [query: string, ...values: any[]],
                 result: any
             }
         }

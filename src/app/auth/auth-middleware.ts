@@ -1,6 +1,6 @@
 import {NextRequest, NextResponse} from 'next/server'
 import {cookies} from 'next/headers'
-import {jwtVerify} from 'jose'
+import {findUserInternal} from '@/app/lib/utils'
 import {hostedURL} from '@/app/lib/hosted-url'
 
 const protectedRoutes = [
@@ -16,7 +16,7 @@ const protectedRoutes = [
 
 export default async function authMiddleware(req: NextRequest): Promise<NextResponse | null> {
     const path = req.nextUrl.pathname
-    if (!protectedRoutes.includes(path)) {
+    if (!(protectedRoutes.includes(path) || path.startsWith('/user/'))) {
         return null
     }
     const cookie = (await cookies()).get('access_token')?.value
@@ -24,7 +24,7 @@ export default async function authMiddleware(req: NextRequest): Promise<NextResp
         return NextResponse.redirect(hostedURL(`/auth?redirect=${encodeURIComponent(req.nextUrl.pathname + req.nextUrl.search)}`))
     }
     try {
-        await jwtVerify(cookie, new TextEncoder().encode(process.env.JWT_SECRET!))
+        if (await findUserInternal(cookie) == null) throw new Error('Unauthorized')
     } catch {
         return NextResponse.redirect(hostedURL(`/auth?redirect=${encodeURIComponent(req.nextUrl.pathname + req.nextUrl.search)}`))
     }

@@ -1,16 +1,16 @@
 'use server'
 
-import { Application, Authorization, Gender, User, UserType } from '@/generated/prisma/client'
-import { findUserOrThrow } from '@/app/lib/utils'
-import { cookies } from 'next/headers'
-import { prisma } from '@/app/lib/prisma'
+import {Application, Authorization, Gender, User, UserType} from '@/generated/prisma/client'
+import {findUserOrThrow} from '@/app/lib/utils'
+import {cookies} from 'next/headers'
+import {prisma} from '@/app/lib/prisma'
 
 export async function getMe(): Promise<User> {
-    return (await prisma.user.findUnique({
+    return sanitizeUser((await prisma.user.findUnique({
         where: {
             seiueId: await findUserOrThrow()
         }
-    }))!
+    }))!)
 }
 
 export interface UserSimple {
@@ -29,22 +29,40 @@ export interface UserSimple {
 }
 
 export async function getUserByID(id: number): Promise<User> {
-    return (await prisma.user.findUnique({
+    const me = await getMe()
+    if (me.seiueId !== id && !me.admin) throw new Error('Unauthorized')
+    return sanitizeUser((await prisma.user.findUnique({
         where: {
             seiueId: id
         }
-    }))!
+    }))!)
 }
 
 export async function getUserSimpleByID(id: number): Promise<UserSimple> {
-    return (await prisma.user.findUnique({
-        where: {
-            seiueId: id
+    const me = await getMe()
+    if (me.seiueId !== id && !me.admin) throw new Error('Unauthorized')
+    const user = await prisma.user.findUniqueOrThrow({
+        where: {seiueId: id},
+        select: {
+            seiueId: true,
+            schoolId: true,
+            createdAt: true,
+            updatedAt: true,
+            name: true,
+            pinyin: true,
+            adminClass0: true,
+            classTeacher0: true,
+            gender: true,
+            lastUserAgent: true,
+            admin: true,
+            type: true
         }
-    }))!
+    })
+    return user
 }
 
 export async function getUserNameByID(id: number): Promise<string> {
+    await findUserOrThrow()
     return (await prisma.user.findUnique({
         where: {
             seiueId: id
@@ -100,4 +118,9 @@ export async function getMyAppsSecure(): Promise<Application[]> {
 export async function logOut(): Promise<void> {
     const c = await cookies()
     c.delete('access_token')
+}
+
+function sanitizeUser(user: User): User {
+    if (!user) throw new Error('Unauthorized')
+    return {...user, accessToken: null, lastSMSCode: null, lastSMSPhone: null}
 }

@@ -1,9 +1,9 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
-import { logOut } from '@/app/lib/user-actions'
-import { useEffect } from 'react'
-import { useTranslationClient } from '@/app/i18n/client'
+import {useRouter} from 'next/navigation'
+import {logOut} from '@/app/lib/user-actions'
+import {useEffect} from 'react'
+import {useTranslationClient} from '@/app/i18n/client'
 import CookiesBoundary from '@/app/lib/CookiesBoundary'
 
 export default function WrappedLogoutPage() {
@@ -11,7 +11,7 @@ export default function WrappedLogoutPage() {
 }
 
 function LogoutPage() {
-    const { t } = useTranslationClient('home')
+    const {t} = useTranslationClient('home')
     const router = useRouter()
 
     useEffect(() => {
@@ -19,7 +19,7 @@ function LogoutPage() {
             await logOut()
             router.push('/')
         })()
-    }, [ router ])
+    }, [router])
 
     return <>{t('wait')}</>
 }

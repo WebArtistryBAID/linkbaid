@@ -1,25 +1,12 @@
 import {useTranslation} from '@/app/i18n'
 import Branding from '@/app/lib/Branding'
-import {createFeishuState} from '@/app/auth/callback/login'
+import {localRedirect} from '@/app/lib/redirect-target'
 
-function normalizeRedirect(value: unknown): string {
-    if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) {
-        return '/'
-    }
-    return value
-}
-
-export default async function AuthPage({ searchParams }: { searchParams: never }) {
-    const { t } = await useTranslation('auth')
-    const back = normalizeRedirect((await searchParams)['redirect'])
-    const redirect = `https://passport.seiue.com/authorize?response_type=token&client_id=${process.env.SEIUE_CLIENT_ID}&school_id=452&scope=reflection.read_basic&redirect_uri=${encodeURIComponent(`${process.env.HOSTED}/auth/callback?redirect=${encodeURIComponent(back)}`)}`
-    const feishuRedirectURI = `${process.env.HOSTED}/auth/callback/feishu`
-    const feishuRedirect = new URL('https://accounts.feishu.cn/open-apis/authen/v1/authorize')
-    feishuRedirect.searchParams.set('client_id', process.env.FEISHU_APP_ID!)
-    feishuRedirect.searchParams.set('response_type', 'code')
-    feishuRedirect.searchParams.set('redirect_uri', feishuRedirectURI)
-    feishuRedirect.searchParams.set('scope', 'contact:user.phone:readonly contact:user.employee_id:readonly')
-    feishuRedirect.searchParams.set('state', await createFeishuState(back))
+export default async function AuthPage({searchParams}: { searchParams: never }) {
+    const {t} = await useTranslation('auth')
+    const back = localRedirect((await searchParams)['redirect'])
+    const redirect = `/auth/start?provider=seiue&redirect=${encodeURIComponent(back)}`
+    const feishuRedirect = `/auth/start?provider=feishu&redirect=${encodeURIComponent(back)}`
 
     return <div className="simple-container">
         <Branding/>

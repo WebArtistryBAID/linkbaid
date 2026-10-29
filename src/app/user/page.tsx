@@ -10,7 +10,7 @@ export default async function Home() {
 
     return <div className="p-4 md:p-8 lg:p-12 xl:p-16">
         <h1 className="w-full text-center !font-normal mb-5 lg:mb-8">
-            {t('welcome', { name: user.name })}
+            {t('welcome', {name: user.name})}
         </h1>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">

@@ -1,6 +1,6 @@
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faHome, faRightFromBracket, faTicket } from '@fortawesome/free-solid-svg-icons'
-import { useTranslation } from '@/app/i18n'
+import {FontAwesomeIcon} from '@fortawesome/react-fontawesome'
+import {faHome, faRightFromBracket, faTicket} from '@fortawesome/free-solid-svg-icons'
+import {useTranslation} from '@/app/i18n'
 import Link from 'next/link'
 import Branding from '@/app/lib/Branding'
 import DeveloperTools from '@/app/user/DeveloperTools'
@@ -10,7 +10,7 @@ export default async function UserLayout({
 }: Readonly<{
     children: React.ReactNode;
 }>) {
-    const { t } = await useTranslation('home')
+    const {t} = await useTranslation('home')
 
     return <main>
         <div className="base-container relative">

@@ -1,14 +1,14 @@
 'use client'
 
-import { useTranslationClient } from '@/app/i18n/client'
-import { Suspense, useEffect, useState } from 'react'
-import { ApplicationSimple, getAppByID } from '@/app/lib/app-actions'
-import { Authorization } from '@/generated/prisma/browser'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { getMyAuthByID, getUserNameByID } from '@/app/lib/user-actions'
-import { AppIcon } from '@/app/user/applications/AppIcon'
-import { Trans } from 'react-i18next/TransWithoutContext'
-import { revokeMyAuthorization } from '@/app/lib/authorize-actions'
+import {useTranslationClient} from '@/app/i18n/client'
+import {Suspense, useEffect, useState} from 'react'
+import {ApplicationSimple, getAppByID} from '@/app/lib/app-actions'
+import {Authorization} from '@/generated/prisma/browser'
+import {useRouter, useSearchParams} from 'next/navigation'
+import {getMyAuthByID, getUserNameByID} from '@/app/lib/user-actions'
+import {AppIcon} from '@/app/user/applications/AppIcon'
+import {Trans} from 'react-i18next/TransWithoutContext'
+import {revokeMyAuthorization} from '@/app/lib/authorize-actions'
 import CookiesBoundary from '@/app/lib/CookiesBoundary'
 
 function Sub() {

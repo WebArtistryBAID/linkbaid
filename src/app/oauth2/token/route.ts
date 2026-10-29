@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { authorizeForTokens, refreshToken } from '@/app/lib/authorize-actions'
+import {readOAuthForm} from '@/app/lib/oauth-form'
+import {NextRequest, NextResponse} from 'next/server'
+import {authorizeForTokens, refreshToken} from '@/app/lib/authorize-actions'
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!request.headers.has('Authorization')) {
@@ -25,7 +26,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
         )
     }
-    const data = await request.formData()
+    let data: FormData
+    try {
+        data = await readOAuthForm(request)
+    } catch {
+        return NextResponse.json({
+            error: 'invalid_request',
+            error_description: 'The request is invalid.'
+        }, {status: 400})
+    }
     if (!data.has('grant_type')) {
         return NextResponse.json(
             {

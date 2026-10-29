@@ -1,5 +1,5 @@
 import {cookies} from 'next/headers'
-import {decodeJwt, jwtVerify} from 'jose'
+import {jwtVerify} from 'jose'
 
 export async function findUserOrThrow(): Promise<number> {
     const user = await findUserInternalCookie()
@@ -19,13 +19,11 @@ export async function findUserInternalCookie(): Promise<number | null> {
 // Used for internal purposes, find user based on cookies
 export async function findUserInternal(token: string): Promise<number | null> {
     try {
-        await jwtVerify(token, new TextEncoder().encode(process.env.JWT_SECRET!))
+        const {payload} = await jwtVerify(token, new TextEncoder().encode(process.env.JWT_SECRET!), {
+            algorithms: ['HS256'], issuer: 'https://beijing.academy', audience: 'https://beijing.academy'
+        })
+        return payload.type === 'internal' && Number.isSafeInteger(payload.seiueId) && typeof payload.exp === 'number' ? payload.seiueId as number : null
     } catch {
         return null
     }
-    const data = decodeJwt(token)
-    if (data.type !== 'internal') {
-        throw Error('Invalid token type (must be internal)')
-    }
-    return data.seiueId as number
 }

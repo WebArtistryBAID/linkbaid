@@ -1,13 +1,13 @@
 'use server'
 
-import { Application, ApprovalRequest, ApprovalStatus } from '@/generated/prisma/client'
-import { randomBytes, randomUUID } from 'node:crypto'
-import { findUserOrThrow } from '@/app/lib/utils'
+import {Application, ApprovalRequest, ApprovalStatus} from '@/generated/prisma/client'
+import {randomBytes, randomUUID, timingSafeEqual} from 'node:crypto'
+import {findUserOrThrow} from '@/app/lib/utils'
 import path from 'node:path'
 import sharp from 'sharp'
 import fsPromise from 'node:fs/promises'
-import { getMe } from '@/app/lib/user-actions'
-import { prisma } from '@/app/lib/prisma'
+import {getMe} from '@/app/lib/user-actions'
+import {prisma} from '@/app/lib/prisma'
 
 export interface ApplicationSimple {
     id: number
@@ -33,7 +33,7 @@ export async function getApps(): Promise<ApplicationSimple[]> {
             OR: [
                 {
                     allowedUsers: {
-                        hasSome: [ user.seiueId ]
+                        hasSome: [user.seiueId]
                     }
                 },
                 {
@@ -71,7 +71,7 @@ export async function getAppByClientID(clientID: string): Promise<ApplicationSim
             OR: [
                 {
                     allowedUsers: {
-                        hasSome: [ user.seiueId ]
+                        hasSome: [user.seiueId]
                     }
                 },
                 {
@@ -130,11 +130,16 @@ export async function verifyAppSecretByID(id: number, secret: string): Promise<b
             id
         }
     })
-    return app != null && app.clientSecret === secret
+    if (!app || typeof secret !== 'string') return false
+    const supplied = Buffer.from(secret)
+    const expected = Buffer.from(app.clientSecret)
+    return supplied.length === expected.length && timingSafeEqual(supplied, expected)
 }
 
 export async function createApp(formData: FormData): Promise<Application> {
     const user = await findUserOrThrow()
+    if (typeof formData.get('name') !== 'string' || !(formData.get('name') as string).trim() || (formData.get('name') as string).length > 200) throw new Error('Invalid name')
+    validateURL(formData.get('homepage') as string)
     const app = await prisma.application.create({
         data: {
             name: formData.get('name') as string,
@@ -181,7 +186,7 @@ export async function getMyAppByIDSecure(id: number): Promise<Application | null
             ownerId: user.admin ? undefined : user.seiueId
         }
     })
-    app!.clientSecret = ''
+    if (app) app.clientSecret = ''
     return app
 }
 
@@ -242,7 +247,7 @@ export async function getApprovalRequests(): Promise<ApprovalRequest[]> {
 }
 
 export async function getApprovalRequestForApp(id: number): Promise<ApprovalRequest | null> {
-    const app = getMyAppByID(id)
+    const app = await getMyAppByID(id)
     if (app == null) {
         throw new Error('Application not found')
     }
@@ -277,6 +282,20 @@ export async function createApprovalRequest(id: number): Promise<ApprovalRequest
 
 export async function updateApp(data: Partial<Application>): Promise<Application> {
     const user = await getMe()
+    if (!Number.isSafeInteger(data.id)) throw new Error('Invalid application ID')
+    const allowed = ['id', 'homepage', 'terms', 'privacy', 'message', 'redirectUrls', 'scopes', 'accessGated', 'allowedUsers']
+    if (Object.keys(data).some(key => !allowed.includes(key))) throw new Error('Invalid update fields')
+    for (const key of ['homepage', 'terms', 'privacy'] as const) {
+        if (data[key] != null && data[key] !== '') validateURL(data[key]!)
+    }
+    if (data.redirectUrls !== undefined) {
+        if (!Array.isArray(data.redirectUrls) || data.redirectUrls.length > 100) throw new Error('Invalid redirect URLs')
+        data.redirectUrls.forEach(validateURL)
+    }
+    if (data.scopes !== undefined && (!Array.isArray(data.scopes) || data.scopes.some(s => !['basic', 'phone', 'calendar', 'sms'].includes(s)))) throw new Error('Invalid scopes')
+    if (data.accessGated !== undefined && typeof data.accessGated !== 'boolean') throw new Error('Invalid access gate')
+    if (data.allowedUsers !== undefined && (!Array.isArray(data.allowedUsers) || data.allowedUsers.some(id => !Number.isSafeInteger(id)))) throw new Error('Invalid users')
+    if (data.message !== undefined && (typeof data.message !== 'string' || data.message.length > 10000)) throw new Error('Invalid message')
     const app = await prisma.application.findFirst({
         where: {
             id: data.id!,
@@ -387,15 +406,13 @@ export async function uploadAppIcon(formData: FormData): Promise<Application> {
         throw new Error('Application not found')
     }
     const file = formData.get('icon') as File
+    if (!(file instanceof File) || file.size > 5 * 1024 * 1024) throw new Error('Invalid icon')
     const root = process.env.UPLOAD_ROOT
 
     await fsPromise.mkdir(path.join(root!, 'app-icons'), {recursive: true})
 
-    if (app.icon != null) {
-        await fsPromise.rm(path.join(root!, app.icon!))
-    }
     const fn = `${app.id}-${randomUUID().toString()}.webp`
-    await sharp(Buffer.from(await file.arrayBuffer()))
+    await sharp(Buffer.from(await file.arrayBuffer()), {limitInputPixels: 16000000})
         .resize({
             width: 512,
             height: 512
@@ -419,7 +436,7 @@ export async function uploadAppIcon(formData: FormData): Promise<Application> {
             }
         }
     })
-    return prisma.application.update({
+    const updated = await prisma.application.update({
         where: {
             id: app.id
         },
@@ -427,4 +444,14 @@ export async function uploadAppIcon(formData: FormData): Promise<Application> {
             icon: `/app-icons/${fn}`
         }
     })
+    if (app.icon != null && /^\/app-icons\/[a-zA-Z0-9-]+\.webp$/.test(app.icon)) {
+        await fsPromise.rm(path.join(root!, 'app-icons', path.basename(app.icon)), {force: true}).catch(() => undefined)
+    }
+    return updated
+}
+
+function validateURL(value: string): void {
+    if (typeof value !== 'string' || value.length > 4096) throw new Error('Invalid URL')
+    const url = new URL(value)
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash) throw new Error('Invalid URL')
 }

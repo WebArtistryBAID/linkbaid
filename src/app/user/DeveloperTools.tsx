@@ -1,13 +1,13 @@
 'use client'
 
-import { useTranslationClient } from '@/app/i18n/client'
+import {useTranslationClient} from '@/app/i18n/client'
 import Link from 'next/link'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCode, faStamp } from '@fortawesome/free-solid-svg-icons'
+import {FontAwesomeIcon} from '@fortawesome/react-fontawesome'
+import {faCode, faStamp} from '@fortawesome/free-solid-svg-icons'
 import If from '@/app/lib/If'
-import { useEffect, useState } from 'react'
-import { User } from '@/generated/prisma/browser'
-import { getMe } from '@/app/lib/user-actions'
+import {useEffect, useState} from 'react'
+import {User} from '@/generated/prisma/browser'
+import {getMe} from '@/app/lib/user-actions'
 import CookiesBoundary from '@/app/lib/CookiesBoundary'
 
 export default function WrappedDeveloperTools() {
@@ -15,9 +15,9 @@ export default function WrappedDeveloperTools() {
 }
 
 function DeveloperTools() {
-    const { t } = useTranslationClient('home')
-    const [ me, setMe ] = useState<User | null | undefined>(undefined)
-    const [ showDev, setShowDev ] = useState(false)
+    const {t} = useTranslationClient('home')
+    const [me, setMe] = useState<User | null | undefined>(undefined)
+    const [showDev, setShowDev] = useState(false)
 
     useEffect(() => {
         (async () => {

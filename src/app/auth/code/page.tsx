@@ -1,10 +1,12 @@
 'use client'
 
+import {localRedirect} from '@/app/lib/redirect-target'
+
 import Link from 'next/link'
-import React, { Suspense, useState } from 'react'
-import { useTranslationClient } from '@/app/i18n/client'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { loginWithAccessCode } from '@/app/auth/callback/login'
+import React, {Suspense, useState} from 'react'
+import {useTranslationClient} from '@/app/i18n/client'
+import {useRouter, useSearchParams} from 'next/navigation'
+import {loginWithAccessCode} from '@/app/auth/callback/login'
 import If from '@/app/lib/If'
 import Branding from '@/app/lib/Branding'
 import CookiesBoundary from '@/app/lib/CookiesBoundary'
@@ -17,7 +19,7 @@ function Sub() {
     const [error, setError] = useState(false)
     const router = useRouter()
 
-    const redirect = search.has('redirect') ? search.get('redirect')! : '/'
+    const redirect = localRedirect(search.get('redirect'))
 
     return <div className="simple-container">
         <Branding/>

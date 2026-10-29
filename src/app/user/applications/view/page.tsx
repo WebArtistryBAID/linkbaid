@@ -1,6 +1,6 @@
 'use client'
 
-import { redirect, useRouter } from 'next/navigation'
+import {redirect, useRouter} from 'next/navigation'
 import {
     createApprovalRequest,
     deleteApp,
@@ -10,14 +10,14 @@ import {
     setAppApprovalStatus,
     updateApp
 } from '@/app/lib/app-actions'
-import { AppIcon } from '@/app/user/applications/AppIcon'
-import { getMe, getUserNameByID } from '@/app/lib/user-actions'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCopy } from '@fortawesome/free-regular-svg-icons'
-import { useTranslationClient } from '@/app/i18n/client'
-import { use, useEffect, useState } from 'react'
-import { $Enums, Application, ApprovalRequest, ApprovalStatus, User } from '@/generated/prisma/browser'
-import { faClose, faRefresh, faWarning } from '@fortawesome/free-solid-svg-icons'
+import {AppIcon} from '@/app/user/applications/AppIcon'
+import {getMe, getUserNameByID} from '@/app/lib/user-actions'
+import {FontAwesomeIcon} from '@fortawesome/react-fontawesome'
+import {faCopy} from '@fortawesome/free-regular-svg-icons'
+import {useTranslationClient} from '@/app/i18n/client'
+import {use, useEffect, useState} from 'react'
+import {$Enums, Application, ApprovalRequest, ApprovalStatus, User} from '@/generated/prisma/browser'
+import {faClose, faRefresh, faWarning} from '@fortawesome/free-solid-svg-icons'
 import If from '@/app/lib/If'
 import CookiesBoundary from '@/app/lib/CookiesBoundary'
 import Scope = $Enums.Scope
@@ -27,41 +27,49 @@ export default function WrappedApplicationView(props: { searchParams: Promise<ne
     return <CookiesBoundary><ApplicationView searchParams={searchParams}/></CookiesBoundary>
 }
 
-function ApplicationView({ searchParams }: { searchParams: never }) {
-    const { t } = useTranslationClient('applications')
-    const [ me, setMe ] = useState<User | null>(null)
+function ApplicationView({searchParams}: { searchParams: never }) {
+    const {t} = useTranslationClient('applications')
+    const [me, setMe] = useState<User | null>(null)
     const router = useRouter()
 
-    const [ copiedHighlight, setCopiedHighlight ] = useState(false)
-    const [ copiedHighlightSecret, setCopiedHighlightSecret ] = useState(false)
-    const [ app, setApp ] = useState<Application | null>(null)
-    const [ ownerName, setOwnerName ] = useState('')
-    const [ secret, setSecret ] = useState<string | null>('secret' in searchParams ? searchParams['secret'] : null)
+    const [copiedHighlight, setCopiedHighlight] = useState(false)
+    const [copiedHighlightSecret, setCopiedHighlightSecret] = useState(false)
+    const [app, setApp] = useState<Application | null>(null)
+    const [ownerName, setOwnerName] = useState('')
+    const [secret, setSecret] = useState<string | null>('secret' in searchParams ? searchParams['secret'] : null)
 
-    const [ message, setMessage ] = useState('')
-    const [ homepage, setHomepage ] = useState('')
-    const [ terms, setTerms ] = useState('')
-    const [ privacy, setPrivacy ] = useState('')
-    const [ redirectURIs, setRedirectURIs ] = useState<string[]>([])
-    const [ redirectURI, setRedirectURI ] = useState('')
-    const [ scopes, setScopes ] = useState<string[]>([])
-    const [ accessGated, setAccessGated ] = useState(false)
-    const [ allowedUsers, setAllowedUsers ] = useState<number[]>([])
-    const [ allowedUser, setAllowedUser ] = useState('')
+    const [message, setMessage] = useState('')
+    const [homepage, setHomepage] = useState('')
+    const [terms, setTerms] = useState('')
+    const [privacy, setPrivacy] = useState('')
+    const [redirectURIs, setRedirectURIs] = useState<string[]>([])
+    const [redirectURI, setRedirectURI] = useState('')
+    const [scopes, setScopes] = useState<string[]>([])
+    const [accessGated, setAccessGated] = useState(false)
+    const [allowedUsers, setAllowedUsers] = useState<number[]>([])
+    const [allowedUser, setAllowedUser] = useState('')
 
-    const [ unsaved, setUnsaved ] = useState(false)
-    const [ saveLoading, setSaveLoading ] = useState(false)
-    const [ deleteConfirm, setDeleteConfirm ] = useState(false)
-    const [ deleting, setDeleting ] = useState(false)
+    const [unsaved, setUnsaved] = useState(false)
+    const [saveLoading, setSaveLoading] = useState(false)
+    const [deleteConfirm, setDeleteConfirm] = useState(false)
+    const [deleting, setDeleting] = useState(false)
 
-    const [ existingApprovalRequest, setEAR ] = useState<ApprovalRequest | null>(null)
-    const [ earLoading, setEARLoading ] = useState(false)
+    const [existingApprovalRequest, setEAR] = useState<ApprovalRequest | null>(null)
+    const [earLoading, setEARLoading] = useState(false)
 
     if (!('app' in searchParams)) {
         redirect('/user/applications')
     }
 
     useEffect(() => {
+        const fragmentSecret = new URLSearchParams(location.hash.slice(1)).get('secret')
+        if (fragmentSecret) setSecret(fragmentSecret)
+        if (fragmentSecret || new URLSearchParams(location.search).has('secret')) {
+            const url = new URL(location.href)
+            url.searchParams.delete('secret')
+            url.hash = ''
+            history.replaceState(null, '', url.pathname + url.search)
+        }
         (async () => {
             const a = await getMyAppByIDSecure(parseInt((await searchParams)['app']))
             if (a == null) {
@@ -81,8 +89,8 @@ function ApplicationView({ searchParams }: { searchParams: never }) {
             setMe(await getMe())
             setEAR(await getApprovalRequestForApp(a.id))
         })()
-    }, [ router,
-        searchParams ])
+    }, [router,
+        searchParams])
 
     if (app == null || me == null) {
         return <div>
@@ -96,7 +104,7 @@ function ApplicationView({ searchParams }: { searchParams: never }) {
         </div>
     }
 
-    return <div className="h-full overflow-y-auto relative" style={{ transform: 'translateZ(0)' }}>
+    return <div className="h-full overflow-y-auto relative" style={{transform: 'translateZ(0)'}}>
         <h1 className="mb-5">{t('view.title')}</h1>
 
         <div
@@ -241,7 +249,7 @@ function ApplicationView({ searchParams }: { searchParams: never }) {
                 } catch {
                     return
                 }
-                setRedirectURIs([ ...redirectURIs, redirectURI ])
+                setRedirectURIs([...redirectURIs, redirectURI])
                 setRedirectURI('')
                 setUnsaved(true)
             }}>{t('view.addRedirect')}</button>
@@ -252,7 +260,7 @@ function ApplicationView({ searchParams }: { searchParams: never }) {
             {Object.keys(Scope).map((scope, i) => <div className="flex items-center" key={i}>
                 <input type="checkbox" className="mr-3" id={scope} onChange={(e) => {
                     if (e.currentTarget.checked) {
-                        setScopes([ ...scopes, scope ])
+                        setScopes([...scopes, scope])
                         setUnsaved(true)
                     } else {
                         setScopes(scopes.filter(s => s !== scope))
@@ -295,7 +303,7 @@ function ApplicationView({ searchParams }: { searchParams: never }) {
                     if (isNaN(parseInt(allowedUser)) || allowedUser.length < 1 || parseInt(allowedUser) < 0) {
                         return
                     }
-                    setAllowedUsers([ ...allowedUsers, parseInt(allowedUser) ])
+                    setAllowedUsers([...allowedUsers, parseInt(allowedUser)])
                     setAllowedUser('')
                     setUnsaved(true)
                 }}>{t('view.addUser')}</button>

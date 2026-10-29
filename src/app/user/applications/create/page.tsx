@@ -1,7 +1,7 @@
-import { useTranslation } from '@/app/i18n'
+import {useTranslation} from '@/app/i18n'
 import Link from 'next/link'
-import { createApp } from '@/app/lib/app-actions'
-import { redirect } from 'next/navigation'
+import {createApp} from '@/app/lib/app-actions'
+import {redirect} from 'next/navigation'
 
 export default async function ApplicationCreate() {
     const {t} = await useTranslation('applications')
@@ -14,7 +14,7 @@ export default async function ApplicationCreate() {
             <form action={async (data) => {
                 'use server'
                 const app = await createApp(data)
-                redirect(`/user/applications/view?app=${app.id}&secret=${app.clientSecret}`)
+                redirect(`/user/applications/view?app=${app.id}#secret=${app.clientSecret}`)
             }}>
                 <p className="mb-1 text-sm secondary">{t('create.nameInput')}</p>
                 <input type="text" name="name" minLength={2} maxLength={16} className="text mb-3"

@@ -1,13 +1,13 @@
-import { useTranslation } from '@/app/i18n'
-import { getApprovalRequests, getMyAppByID } from '@/app/lib/app-actions'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faHourglassEmpty } from '@fortawesome/free-solid-svg-icons'
-import { AppIcon } from '@/app/user/applications/AppIcon'
+import {useTranslation} from '@/app/i18n'
+import {getApprovalRequests, getMyAppByID} from '@/app/lib/app-actions'
+import {FontAwesomeIcon} from '@fortawesome/react-fontawesome'
+import {faHourglassEmpty} from '@fortawesome/free-solid-svg-icons'
+import {AppIcon} from '@/app/user/applications/AppIcon'
 import Link from 'next/link'
-import { Application } from '@/generated/prisma/client'
+import {Application} from '@/generated/prisma/client'
 
 export default async function Approvals() {
-    const { t } = await useTranslation('approvals')
+    const {t} = await useTranslation('approvals')
     const requests = await getApprovalRequests()
 
     if (requests.length < 1) {

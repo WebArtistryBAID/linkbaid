@@ -1,13 +1,13 @@
 'use server'
 
-import { ApprovalStatus, Authorization, Scope } from '@/generated/prisma/client'
-import { getMe } from '@/app/lib/user-actions'
-import { createSecretKey } from 'node:crypto'
-import { jwtVerify, SignJWT } from 'jose'
-import { getAppByID, verifyAppSecretByID } from '@/app/lib/app-actions'
-import { findUserOrThrow } from '@/app/lib/utils'
-import { NextRequest } from 'next/server'
-import { prisma } from '@/app/lib/prisma'
+import {ApprovalStatus, Authorization, Scope} from '@/generated/prisma/client'
+import {getMe} from '@/app/lib/user-actions'
+import {createHash, createSecretKey, randomUUID} from 'node:crypto'
+import {jwtVerify, SignJWT} from 'jose'
+import {getAppByID, verifyAppSecretByID} from '@/app/lib/app-actions'
+import {findUserOrThrow} from '@/app/lib/utils'
+import {NextRequest} from 'next/server'
+import {prisma} from '@/app/lib/prisma'
 
 const secret = createSecretKey(process.env.JWT_SECRET!, 'utf-8')
 
@@ -21,7 +21,7 @@ export async function authorizeForCode(application: number, scopes: Scope[], sta
             id: application
         }
     })
-    if (!app) {
+    if (!app || (app.accessGated && app.ownerId !== me.seiueId && !app.allowedUsers.includes(me.seiueId))) {
         return null
     }
 
@@ -31,25 +31,47 @@ export async function authorizeForCode(application: number, scopes: Scope[], sta
     if (!scopes.every(s => app.scopes.includes(s))) {
         return null
     }
-    if (!app.redirectUrls.includes(redirectURI)) {
+    let destination: URL
+    try {
+        destination = new URL(redirectURI)
+    } catch {
+        return null
+    }
+    if (!['http:', 'https:'].includes(destination.protocol) || destination.username || destination.password || destination.hash || !app.redirectUrls.includes(redirectURI)) {
         return null
     }
 
-    return await new SignJWT({
+    const code = await new SignJWT({
         user: me.seiueId,
         app: app.id,
         scopes: scopes.map(s => s.toString()),
         state: state,
-        phone: includePhone ? (me.phone == null ? null : `+86${me.phone}`) : null,
+        phone: includePhone && scopes.includes('phone') ? (me.phone == null ? null : `+86${me.phone}`) : null,
         redirectURI,
         type: 'authorization_code'
     })
+        .setJti(randomUUID())
         .setIssuedAt()
         .setIssuer('https://auth.beijing.academy')
         .setAudience(app.redirectUrls[0])
         .setExpirationTime('5 minutes')
-        .setProtectedHeader({ alg: 'HS256' })
+        .setProtectedHeader({alg: 'HS256'})
         .sign(secret)
+    // Reuse the access-code store for one-time OAuth grants without changing existing authorizations.
+    await prisma.accessCode.deleteMany({
+        where: {
+            code: {startsWith: 'oauth:'},
+            createdAt: {lt: new Date(Date.now() - 5 * 60 * 1000)}
+        }
+    })
+    await prisma.accessCode.create({
+        data: {
+            userId: me.seiueId,
+            code: `oauth:${createHash('sha256').update(code).digest('hex')}`,
+            persistent: false
+        }
+    })
+    return code
 }
 
 export interface TokenResponse {
@@ -72,7 +94,7 @@ export async function authorizeForTokens(code: string, credentials: string, gran
         }
     }
 
-    const cred = Buffer.from(credentials, 'base64').toString('utf-8').split(':')
+    const cred = Buffer.from(typeof credentials === 'string' ? credentials : '', 'base64').toString('utf-8').split(':')
 
     if (cred.length !== 2) {
         return {
@@ -83,7 +105,7 @@ export async function authorizeForTokens(code: string, credentials: string, gran
 
     let jwt
     try {
-        jwt = await jwtVerify(code, secret)
+        jwt = await jwtVerify(code, secret, {algorithms: ['HS256'], issuer: 'https://auth.beijing.academy'})
     } catch {
         return {
             error: 'invalid_grant',
@@ -91,7 +113,7 @@ export async function authorizeForTokens(code: string, credentials: string, gran
         }
     }
 
-    if (jwt.payload.type !== 'authorization_code') {
+    if (!validPayload(jwt.payload) || jwt.payload.type !== 'authorization_code') {
         return {
             error: 'invalid_grant',
             error_description: 'The provided authorization code is invalid or has expired.'
@@ -118,6 +140,22 @@ export async function authorizeForTokens(code: string, credentials: string, gran
             error: 'invalid_client',
             error_description: 'The client credentials are invalid.'
         }
+    }
+
+    const currentApp = await prisma.application.findUnique({where: {id: app.id}})
+    if (!currentApp || !currentApp.redirectUrls.includes(redirectURI) || !(jwt.payload.scopes as string[]).every(scope => currentApp.scopes.includes(scope as Scope)) || (currentApp.accessGated && currentApp.ownerId !== jwt.payload.user && !currentApp.allowedUsers.includes(jwt.payload.user as number))) {
+        return {error: 'invalid_grant', error_description: 'The authorization is unavailable.'}
+    }
+    const consumed = await prisma.accessCode.deleteMany({
+        where: {
+            userId: jwt.payload.user as number,
+            persistent: false,
+            code: `oauth:${createHash('sha256').update(code).digest('hex')}`
+        }
+    })
+    if (consumed.count !== 1) return {
+        error: 'invalid_grant',
+        error_description: 'The authorization code has already been used or expired.'
     }
 
     if ((await prisma.authorization.findFirst({
@@ -156,7 +194,7 @@ export async function authorizeForTokens(code: string, credentials: string, gran
         data: {
             type: 'authorizedApp',
             userId: jwt.payload.user as number,
-            values: [ app.id!.toString() ]
+            values: [app.id!.toString()]
         }
     })
 
@@ -170,7 +208,7 @@ export async function authorizeForTokens(code: string, credentials: string, gran
         .setIssuer('https://access.beijing.academy')
         .setAudience(redirectURI)
         .setExpirationTime('1 day')
-        .setProtectedHeader({ alg: 'HS256' })
+        .setProtectedHeader({alg: 'HS256'})
         .sign(secret)
     const refreshToken = await new SignJWT({
         user: jwt.payload.user,
@@ -182,7 +220,7 @@ export async function authorizeForTokens(code: string, credentials: string, gran
         .setIssuer('https://refresh.beijing.academy')
         .setAudience(redirectURI)
         .setExpirationTime('30 days')
-        .setProtectedHeader({ alg: 'HS256' })
+        .setProtectedHeader({alg: 'HS256'})
         .sign(secret)
     return {
         access_token: accessToken,
@@ -200,7 +238,7 @@ export async function refreshToken(refreshToken: string, credentials: string, gr
         }
     }
 
-    const cred = Buffer.from(credentials, 'base64').toString('utf-8').split(':')
+    const cred = Buffer.from(typeof credentials === 'string' ? credentials : '', 'base64').toString('utf-8').split(':')
 
     if (cred.length !== 2) {
         return {
@@ -211,7 +249,7 @@ export async function refreshToken(refreshToken: string, credentials: string, gr
 
     let jwt
     try {
-        jwt = await jwtVerify(refreshToken, secret)
+        jwt = await jwtVerify(refreshToken, secret, {algorithms: ['HS256'], issuer: 'https://refresh.beijing.academy'})
     } catch {
         return {
             error: 'invalid_grant',
@@ -219,7 +257,7 @@ export async function refreshToken(refreshToken: string, credentials: string, gr
         }
     }
 
-    if (jwt.payload.type !== 'refresh_token') {
+    if (!validPayload(jwt.payload) || jwt.payload.type !== 'refresh_token') {
         return {
             error: 'invalid_grant',
             error_description: 'The provided refresh token is invalid or has expired.'
@@ -251,7 +289,7 @@ export async function refreshToken(refreshToken: string, credentials: string, gr
         }
     })
 
-    if (app == null || app.approved !== ApprovalStatus.approved) {
+    if (app == null || app.approved !== ApprovalStatus.approved || (app.accessGated && app.ownerId !== jwt.payload.user && !app.allowedUsers.includes(jwt.payload.user as number)) || !(jwt.payload.scopes as string[]).every(s => app.scopes.includes(s as Scope))) {
         return {
             error: 'invalid_grant',
             error_description: 'The provided refresh token is invalid or has expired.'
@@ -276,7 +314,7 @@ export async function refreshToken(refreshToken: string, credentials: string, gr
             .setIssuer('https://access.beijing.academy')
             .setAudience(app.redirectUrls[0])
             .setExpirationTime('1 day')
-            .setProtectedHeader({ alg: 'HS256' })
+            .setProtectedHeader({alg: 'HS256'})
             .sign(secret)
         return {
             access_token: accessToken,
@@ -301,7 +339,7 @@ export async function refreshToken(refreshToken: string, credentials: string, gr
         .setIssuer('https://access.beijing.academy')
         .setAudience(app.redirectUrls[0])
         .setExpirationTime('1 day')
-        .setProtectedHeader({ alg: 'HS256' })
+        .setProtectedHeader({alg: 'HS256'})
         .sign(secret)
     const refreshTokenNew = await new SignJWT({
         user: jwt.payload.user,
@@ -313,7 +351,7 @@ export async function refreshToken(refreshToken: string, credentials: string, gr
         .setIssuer('https://refresh.beijing.academy')
         .setAudience(app.redirectUrls[0])
         .setExpirationTime('30 days')
-        .setProtectedHeader({ alg: 'HS256' })
+        .setProtectedHeader({alg: 'HS256'})
         .sign(secret)
     return {
         access_token: accessToken,
@@ -324,7 +362,7 @@ export async function refreshToken(refreshToken: string, credentials: string, gr
 }
 
 export async function revokeToken(token: string, credentials: string): Promise<boolean> {
-    const cred = Buffer.from(credentials, 'base64').toString('utf-8').split(':')
+    const cred = Buffer.from(typeof credentials === 'string' ? credentials : '', 'base64').toString('utf-8').split(':')
 
     if (cred.length !== 2) {
         return false
@@ -332,12 +370,15 @@ export async function revokeToken(token: string, credentials: string): Promise<b
 
     let jwt
     try {
-        jwt = await jwtVerify(token, secret)
+        jwt = await jwtVerify(token, secret, {
+            algorithms: ['HS256'],
+            issuer: ['https://access.beijing.academy', 'https://refresh.beijing.academy']
+        })
     } catch {
         return false
     }
 
-    if (jwt.payload.type !== 'access_token' && jwt.payload.type !== 'refresh_token') {
+    if (!validPayload(jwt.payload) || (jwt.payload.type !== 'access_token' && jwt.payload.type !== 'refresh_token')) {
         return false
     }
 
@@ -354,7 +395,7 @@ export async function revokeToken(token: string, credentials: string): Promise<b
         data: {
             type: 'deauthorizedApp',
             userId: jwt.payload.user as number,
-            values: [ app.id!.toString() ]
+            values: [app.id!.toString()]
         }
     })
 
@@ -378,7 +419,7 @@ export async function revokeMyAuthorization(auth: Authorization): Promise<void> 
         data: {
             type: 'deauthorizedApp',
             userId: await findUserOrThrow(),
-            values: [ auth.applicationId.toString() ]
+            values: [auth.applicationId.toString()]
         }
     })
 }
@@ -390,7 +431,11 @@ export async function getUserIDFromHeader(request: NextRequest): Promise<number 
     }
 
     try {
-        const jwt = await jwtVerify(auth.replace('Bearer ', ''), secret)
+        const jwt = await jwtVerify(auth.slice(7), secret, {
+            algorithms: ['HS256'],
+            issuer: 'https://access.beijing.academy'
+        })
+        if (!await validateAccessToken(auth.slice(7), [])) return null
         return jwt.payload.user as number
     } catch {
         return null
@@ -408,9 +453,12 @@ export async function validateFromHeader(request: NextRequest, scope: string[]):
 
 export async function validateAccessToken(accessToken: string, scope: string[]): Promise<boolean> {
     try {
-        const jwt = await jwtVerify(accessToken, secret)
+        const jwt = await jwtVerify(accessToken, secret, {
+            algorithms: ['HS256'],
+            issuer: 'https://access.beijing.academy'
+        })
 
-        if (jwt.payload.type !== 'access_token') {
+        if (!validPayload(jwt.payload) || jwt.payload.type !== 'access_token') {
             return false
         }
 
@@ -423,7 +471,9 @@ export async function validateAccessToken(accessToken: string, scope: string[]):
         if (authorization == null) {
             return false
         }
-        // Check if the scopes in the token are a subset of the required scopes
+        const app = await prisma.application.findUnique({where: {id: jwt.payload.app as number}})
+        if (!app || app.approved !== ApprovalStatus.approved || (app.accessGated && app.ownerId !== jwt.payload.user && !app.allowedUsers.includes(jwt.payload.user as number)) || !(jwt.payload.scopes as string[]).every(s => app.scopes.includes(s as Scope))) return false
+        // Ensure the token still matches the recorded grant.
         if (!(jwt.payload.scopes as string[]).every(s => authorization.scopes.includes(s))) {
             return false
         }
@@ -441,12 +491,16 @@ export async function authorizationFromHeader(request: NextRequest): Promise<Aut
     }
 
     try {
-        const jwt = await jwtVerify(auth.replace('Bearer ', ''), secret)
+        const jwt = await jwtVerify(auth.slice(7), secret, {
+            algorithms: ['HS256'],
+            issuer: 'https://access.beijing.academy'
+        })
 
-        if (jwt.payload.type !== 'access_token') {
+        if (!validPayload(jwt.payload) || jwt.payload.type !== 'access_token') {
             return null
         }
 
+        if (!await validateAccessToken(auth.slice(7), [])) return null
         return await prisma.authorization.findFirst({
             where: {
                 userId: jwt.payload.user as number,
@@ -456,4 +510,8 @@ export async function authorizationFromHeader(request: NextRequest): Promise<Aut
     } catch {
         return null
     }
+}
+
+function validPayload(payload: import('jose').JWTPayload): boolean {
+    return Number.isSafeInteger(payload.user) && Number.isSafeInteger(payload.app) && Array.isArray(payload.scopes) && payload.scopes.every(s => typeof s === 'string') && typeof payload.exp === 'number'
 }

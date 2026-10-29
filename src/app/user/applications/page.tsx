@@ -1,9 +1,9 @@
-import { useTranslation } from '@/app/i18n'
-import { getMyAppsSecure } from '@/app/lib/user-actions'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faHourglassEmpty } from '@fortawesome/free-solid-svg-icons'
+import {useTranslation} from '@/app/i18n'
+import {getMyAppsSecure} from '@/app/lib/user-actions'
+import {FontAwesomeIcon} from '@fortawesome/react-fontawesome'
+import {faHourglassEmpty} from '@fortawesome/free-solid-svg-icons'
 import Link from 'next/link'
-import { AppIcon } from '@/app/user/applications/AppIcon'
+import {AppIcon} from '@/app/user/applications/AppIcon'
 
 export default async function Applications() {
     const {t} = await useTranslation('applications')

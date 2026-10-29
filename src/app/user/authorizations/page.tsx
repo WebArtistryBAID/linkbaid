@@ -1,13 +1,13 @@
-import { useTranslation } from '@/app/i18n'
-import { getMyAuths } from '@/app/lib/user-actions'
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faHourglassEmpty } from '@fortawesome/free-solid-svg-icons'
+import {useTranslation} from '@/app/i18n'
+import {getMyAuths} from '@/app/lib/user-actions'
+import {FontAwesomeIcon} from '@fortawesome/react-fontawesome'
+import {faHourglassEmpty} from '@fortawesome/free-solid-svg-icons'
 import Link from 'next/link'
-import { AppIcon } from '@/app/user/applications/AppIcon'
-import { getAppByID } from '@/app/lib/app-actions'
+import {AppIcon} from '@/app/user/applications/AppIcon'
+import {getAppByID} from '@/app/lib/app-actions'
 
 export default async function Authorizations() {
-    const { t } = await useTranslation('authorizations')
+    const {t} = await useTranslation('authorizations')
     const auths = await getMyAuths()
 
     if (auths.length < 1) {

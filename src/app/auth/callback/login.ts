@@ -3,7 +3,9 @@
 import {cookies, headers} from 'next/headers'
 import {jwtVerify, SignJWT} from 'jose'
 import {Gender, UserAuditLogType, UserType} from '@/generated/prisma/client'
-import {createHash, createSecretKey} from 'node:crypto'
+import {createHash, createSecretKey, randomUUID} from 'node:crypto'
+import {allowLoginAttempt} from '@/app/lib/login-rate-limit'
+import {localRedirect} from '@/app/lib/redirect-target'
 import {prisma} from '@/app/lib/prisma'
 
 const secret = createSecretKey(process.env.JWT_SECRET!, 'utf-8')
@@ -11,13 +13,6 @@ const feishuCallbackPath = '/auth/callback/feishu'
 
 function appendError(target: string, error: string): string {
     return `${target}${target.includes('?') ? '&' : '?'}error=${error}`
-}
-
-function normalizeRedirectTarget(value: unknown): string {
-    if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) {
-        return '/'
-    }
-    return value
 }
 
 function normalizeMainlandMobile(value: unknown): string {
@@ -50,15 +45,17 @@ async function issueInternalLogin(user: { seiueId: number, name: string, pinyin:
         .setProtectedHeader({alg: 'HS256'})
         .sign(secret);
     (await cookies()).set('access_token', token, {
-        expires: new Date(Date.now() + 86400000)
+        expires: new Date(Date.now() + 86400000),
+        httpOnly: true, secure: process.env.HOSTED?.startsWith('https:') === true, sameSite: 'lax', path: '/'
     })
 }
 
 export async function createFeishuState(target: string): Promise<string> {
     return await new SignJWT({
-        target: normalizeRedirectTarget(target),
+        target: localRedirect(target),
         type: 'feishu_oauth_state'
     })
+        .setJti(randomUUID())
         .setIssuedAt()
         .setIssuer('https://auth.beijing.academy')
         .setAudience('https://accounts.feishu.cn')
@@ -68,27 +65,30 @@ export async function createFeishuState(target: string): Promise<string> {
 }
 
 async function readFeishuState(state: string | null): Promise<string | null> {
-    if (state == null) {
+    if (state == null || (await cookies()).get('oauth_state')?.value !== createHash('sha256').update(state).digest('hex')) {
         return null
     }
     try {
         const jwt = await jwtVerify(state, secret, {
+            algorithms: ['HS256'],
             issuer: 'https://auth.beijing.academy',
             audience: 'https://accounts.feishu.cn'
         })
         if (jwt.payload.type !== 'feishu_oauth_state') {
             return null
         }
-        return normalizeRedirectTarget(jwt.payload.target)
+        (await cookies()).delete('oauth_state')
+        return localRedirect(jwt.payload.target)
     } catch {
         return null
     }
 }
 
 export async function loginWithAccessCode(code: string): Promise<boolean> {
+    if (!await allowLoginAttempt()) return false
     const head = await headers()
     const ip = head.get('X-Forwarded-For') ?? head.get('X-Real-IP') ?? 'localhost'
-    if (code.length < 1) {
+    if (typeof code !== 'string' || code.length < 1 || code.length > 512 || code.startsWith('oauth:')) {
         return false
     }
     const access = await prisma.accessCode.findFirst({
@@ -108,11 +108,8 @@ export async function loginWithAccessCode(code: string): Promise<boolean> {
         return false
     }
     if (!access.persistent) {
-        await prisma.accessCode.deleteMany({
-            where: {
-                code
-            }
-        })
+        const consumed = await prisma.accessCode.deleteMany({where: {id: access.id, persistent: false}})
+        if (consumed.count !== 1) return false
     }
     await prisma.userAuditLog.create({
         data: {
@@ -128,6 +125,7 @@ export async function loginWithAccessCode(code: string): Promise<boolean> {
 export async function loginWithFeishu(code: string | null, state: string | null): Promise<string> {
     const head = await headers()
     const ip = head.get('X-Forwarded-For') ?? head.get('X-Real-IP') ?? 'localhost'
+    if (!await allowLoginAttempt()) return '/auth?error=feishu'
     const target = await readFeishuState(state)
     if (target == null || code == null || code.length < 1) {
         return appendError(target ?? '/', 'feishu')
@@ -146,6 +144,7 @@ export async function loginWithFeishu(code: string | null, state: string | null)
             code,
             redirect_uri: redirectURI
         }),
+        signal: AbortSignal.timeout(15000),
         cache: 'no-store'
     })
     if (!tokenResponse.ok) {
@@ -166,20 +165,20 @@ export async function loginWithFeishu(code: string | null, state: string | null)
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json; charset=utf-8'
         },
+        signal: AbortSignal.timeout(15000),
         cache: 'no-store'
     })
     if (!userInfoResponse.ok) {
         return appendError(target, 'feishu')
     }
     const userInfoJson = await userInfoResponse.json()
-    console.log(userInfoJson)
     if (userInfoJson.code !== 0) {
         return appendError(target, 'feishu')
     }
 
     const feishuUser = userInfoJson.data ?? {}
     const phone = normalizeMainlandMobile(feishuUser.mobile)
-    if (phone.length < 1) {
+    if (!/^1[3-9]\d{9}$/.test(phone)) {
         return appendError(target, 'feishu')
     }
 
@@ -225,9 +224,15 @@ export async function loginWithFeishu(code: string | null, state: string | null)
     return target
 }
 
-export default async function login(error: boolean | null, tok: string | null, target: string): Promise<string> {
+export default async function login(error: boolean | null, tok: string | null, target: string, state?: string | null): Promise<string> {
     const head = await headers()
     const ip = head.get('X-Forwarded-For') ?? head.get('X-Real-IP') ?? 'localhost'
+
+    if (!await allowLoginAttempt()) return '/auth?error=seiue'
+    target = localRedirect(target)
+    const stateTarget = await readFeishuState(state ?? null)
+    if (stateTarget == null || stateTarget !== target) return '/auth?error=seiue'
+    if (typeof tok !== 'string' || tok.length < 1 || tok.length > 16384) return '/auth?error=seiue'
 
     if (error) {
         return target + '?error=seiue'
@@ -240,6 +245,7 @@ export default async function login(error: boolean | null, tok: string | null, t
                 Authorization: `Bearer ${tok}`,
                 'X-School-Id': '452'
             },
+            signal: AbortSignal.timeout(15000),
             cache: 'no-store'
         }
     )

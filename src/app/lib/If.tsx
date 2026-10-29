@@ -1,3 +1,3 @@
-export default function If({ condition, children }: { condition: boolean; children: React.ReactNode }) {
+export default function If({condition, children}: { condition: boolean; children: React.ReactNode }) {
     return condition ? <>{children}</> : null
 }
