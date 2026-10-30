@@ -52,8 +52,6 @@ To run in development:
 ### Database Migrations
 
 * After pulling migrations, run `prisma migrate deploy`, then `prisma generate`.
-* Set `TRUSTED_CLIENT_IP_HEADER=x-real-ip` only when the reverse proxy overwrites that header, as in the Nginx example.
-  A shared database counter enforces a global login limit even when this variable is empty.
 * To create your own migration, edit `prisma/schema.prisma` and run `prisma migrate dev --name describe_change`. Commit
   the schema and the entire `prisma/migrations/` directory together.
 * On production, run `prisma migrate deploy`, then `prisma generate` before building and restarting Project Whale.
