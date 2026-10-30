@@ -1,10 +1,15 @@
 import {useTranslation} from '@/app/i18n'
 import Branding from '@/app/lib/Branding'
 import {localRedirect} from '@/app/lib/redirect-target'
+import {findUserInternalCookie} from '@/app/lib/utils'
+import {redirect as navigate} from 'next/navigation'
 
 export default async function AuthPage({searchParams}: { searchParams: never }) {
-    const {t} = await useTranslation('auth')
     const back = localRedirect((await searchParams)['redirect'])
+    if (await findUserInternalCookie() != null) {
+        navigate(new URL(back, 'https://local.invalid').pathname === '/auth' ? '/' : back)
+    }
+    const {t} = await useTranslation('auth')
     const redirect = `/auth/start?provider=seiue&redirect=${encodeURIComponent(back)}`
     const feishuRedirect = `/auth/start?provider=feishu&redirect=${encodeURIComponent(back)}`
 

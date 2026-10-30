@@ -1,20 +1,22 @@
 'use client'
 
 import {useTranslationClient} from '@/app/i18n/client'
-import {Suspense, useEffect} from 'react'
-import {useRouter, useSearchParams} from 'next/navigation'
+import {Suspense, useEffect, useRef} from 'react'
+import {useSearchParams} from 'next/navigation'
 import login from '@/app/auth/callback/login'
 import CookiesBoundary from '@/app/lib/CookiesBoundary'
 
 function Sub() {
     const search = useSearchParams()
-    const router = useRouter()
+    const started = useRef(false)
     const {t} = useTranslationClient('auth')
 
     useEffect(() => {
+        if (started.current) return
+        started.current = true
         const redir = search.get('redirect')
         if (!location.hash) {
-            router.replace('/auth?error=seiue')
+            location.replace('/auth?error=seiue')
             return
         }
         const match = location.hash.replace('#', '').match(/access_token=([^&]*)/)
@@ -23,10 +25,10 @@ function Sub() {
             const token = decodeURIComponent(match[1])
             history.replaceState(null, '', location.pathname + location.search)
             login(false, token, redir!, search.get('state')).then(url => {
-                router.push(url)
+                location.replace(url)
             })
         }
-    }, [router, search])
+    }, [search])
 
     return <div className="flex justify-center items-center h-screen">
         <p>{t('callback')}</p>
