@@ -1,12 +1,13 @@
 'use server'
 
 import {Application, ApprovalRequest, ApprovalStatus} from '@/generated/prisma/client'
-import {randomBytes, randomUUID, timingSafeEqual} from 'node:crypto'
+import {randomBytes, randomUUID} from 'node:crypto'
 import {findUserOrThrow} from '@/app/lib/utils'
 import path from 'node:path'
 import sharp from 'sharp'
 import fsPromise from 'node:fs/promises'
 import {getMe} from '@/app/lib/user-actions'
+import {hashCredential, verifyCredential} from '@/app/lib/credential-hash'
 import {prisma} from '@/app/lib/prisma'
 
 export interface ApplicationSimple {
@@ -131,15 +132,15 @@ export async function verifyAppSecretByID(id: number, secret: string): Promise<b
         }
     })
     if (!app || typeof secret !== 'string') return false
-    const supplied = Buffer.from(secret)
-    const expected = Buffer.from(app.clientSecret)
-    return supplied.length === expected.length && timingSafeEqual(supplied, expected)
+    if (!verifyCredential(secret, app.clientSecret)) return false
+    return true
 }
 
 export async function createApp(formData: FormData): Promise<Application> {
     const user = await findUserOrThrow()
     if (typeof formData.get('name') !== 'string' || !(formData.get('name') as string).trim() || (formData.get('name') as string).length > 200) throw new Error('Invalid name')
     validateURL(formData.get('homepage') as string)
+    const secret = randomBytes(32).toString('hex')
     const app = await prisma.application.create({
         data: {
             name: formData.get('name') as string,
@@ -148,7 +149,7 @@ export async function createApp(formData: FormData): Promise<Application> {
             redirectUrls: [],
             scopes: [],
             clientId: randomUUID(),
-            clientSecret: randomBytes(32).toString('hex'),
+            clientSecret: hashCredential(secret),
             owner: {
                 connect: {
                     seiueId: user
@@ -175,7 +176,7 @@ export async function createApp(formData: FormData): Promise<Application> {
             }
         }
     })
-    return app
+    return {...app, clientSecret: secret}
 }
 
 export async function getMyAppByIDSecure(id: number): Promise<Application | null> {
@@ -222,7 +223,7 @@ export async function refreshAppSecret(id: number): Promise<string> {
             id: app.id
         },
         data: {
-            clientSecret: secret
+            clientSecret: hashCredential(secret)
         }
     })
     return secret
@@ -324,7 +325,7 @@ export async function updateApp(data: Partial<Application>): Promise<Application
         data.createdAt != null || data.updatedAt != null || data.ownerId != null || data.name != null) {
         throw new Error('Invalid update for certain fields')
     }
-    data.approved = ApprovalStatus.pending // Require re-approval when updating app
+    data.approved = ApprovalStatus.pending
     return prisma.application.update({
         where: {
             id: app.id

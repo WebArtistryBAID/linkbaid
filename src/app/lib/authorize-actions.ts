@@ -57,7 +57,6 @@ export async function authorizeForCode(application: number, scopes: Scope[], sta
         .setExpirationTime('5 minutes')
         .setProtectedHeader({alg: 'HS256'})
         .sign(secret)
-    // Reuse the access-code store for one-time OAuth grants without changing existing authorizations.
     await prisma.accessCode.deleteMany({
         where: {
             code: {startsWith: 'oauth:'},
@@ -146,60 +145,53 @@ export async function authorizeForTokens(code: string, credentials: string, gran
     if (!currentApp || !currentApp.redirectUrls.includes(redirectURI) || !(jwt.payload.scopes as string[]).every(scope => currentApp.scopes.includes(scope as Scope)) || (currentApp.accessGated && currentApp.ownerId !== jwt.payload.user && !currentApp.allowedUsers.includes(jwt.payload.user as number))) {
         return {error: 'invalid_grant', error_description: 'The authorization is unavailable.'}
     }
-    const consumed = await prisma.accessCode.deleteMany({
-        where: {
-            userId: jwt.payload.user as number,
-            persistent: false,
-            code: `oauth:${createHash('sha256').update(code).digest('hex')}`
-        }
-    })
-    if (consumed.count !== 1) return {
-        error: 'invalid_grant',
-        error_description: 'The authorization code has already been used or expired.'
-    }
-
-    if ((await prisma.authorization.findFirst({
-        where: {
-            userId: jwt.payload.user as number,
-            applicationId: jwt.payload.app as number
-        }
-    })) != null) {
-        await prisma.authorization.updateMany({
+    const authorizationId = await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT 1 AS locked
+                           FROM pg_advisory_xact_lock(${jwt.payload.user as number}::int, ${app.id}::int)`
+        const consumed = await tx.accessCode.deleteMany({
             where: {
                 userId: jwt.payload.user as number,
-                applicationId: jwt.payload.app as number
-            },
-            data: {
-                scopes: jwt.payload.scopes as string[]
+                persistent: false,
+                code: `oauth:${createHash('sha256').update(code).digest('hex')}`
             }
         })
-    } else {
-        await prisma.authorization.create({
+        if (consumed.count !== 1) return null
+        let grant = await tx.authorization.findFirst({
+            where: {userId: jwt.payload.user as number, applicationId: app.id},
+            orderBy: {id: 'asc'}
+        })
+        if (grant) {
+            grant = await tx.authorization.update({
+                where: {id: grant.id},
+                data: {scopes: jwt.payload.scopes as string[]}
+            })
+        } else {
+            grant = await tx.authorization.create({
+                data: {
+                    userId: jwt.payload.user as number, applicationId: app.id, scopes: jwt.payload.scopes as string[]
+                }
+            })
+        }
+        await tx.appAuditLog.create({
             data: {
-                userId: jwt.payload.user as number,
-                applicationId: jwt.payload.app as number,
-                scopes: jwt.payload.scopes as string[]
+                type: 'authorizedUser', applicationId: app.id,
+                operationUserId: jwt.payload.user as number, values: jwt.payload.scopes as string[]
             }
         })
+        await tx.userAuditLog.create({
+            data: {
+                type: 'authorizedApp', userId: jwt.payload.user as number, values: [app.id.toString()]
+            }
+        })
+        return grant.id
+    })
+    if (authorizationId == null) return {
+        error: 'invalid_grant', error_description: 'The authorization code has already been used or expired.'
     }
-    await prisma.appAuditLog.create({
-        data: {
-            type: 'authorizedUser',
-            applicationId: app.id,
-            operationUserId: jwt.payload.user as number,
-            values: jwt.payload.scopes as string[]
-        }
-    })
-    await prisma.userAuditLog.create({
-        data: {
-            type: 'authorizedApp',
-            userId: jwt.payload.user as number,
-            values: [app.id!.toString()]
-        }
-    })
 
     const accessToken = await new SignJWT({
         user: jwt.payload.user,
+        authorizationId,
         app: jwt.payload.app,
         scopes: jwt.payload.scopes,
         type: 'access_token'
@@ -212,6 +204,7 @@ export async function authorizeForTokens(code: string, credentials: string, gran
         .sign(secret)
     const refreshToken = await new SignJWT({
         user: jwt.payload.user,
+        authorizationId,
         app: jwt.payload.app,
         scopes: jwt.payload.scopes,
         type: 'refresh_token'
@@ -264,12 +257,7 @@ export async function refreshToken(refreshToken: string, credentials: string, gr
         }
     }
 
-    const authorization = await prisma.authorization.findFirst({
-        where: {
-            userId: jwt.payload.user as number,
-            applicationId: jwt.payload.app as number
-        }
-    })
+    const authorization = await findTokenAuthorization(jwt.payload)
     if (authorization == null) {
         return {
             error: 'invalid_grant',
@@ -306,6 +294,7 @@ export async function refreshToken(refreshToken: string, credentials: string, gr
     if (scope == null) {
         const accessToken = await new SignJWT({
             user: jwt.payload.user,
+            authorizationId: authorization.id,
             app: jwt.payload.app,
             scopes: jwt.payload.scopes,
             type: 'access_token'
@@ -331,6 +320,7 @@ export async function refreshToken(refreshToken: string, credentials: string, gr
     }
     const accessToken = await new SignJWT({
         user: jwt.payload.user,
+        authorizationId: authorization.id,
         app: jwt.payload.app,
         scopes: scope,
         type: 'access_token'
@@ -343,6 +333,7 @@ export async function refreshToken(refreshToken: string, credentials: string, gr
         .sign(secret)
     const refreshTokenNew = await new SignJWT({
         user: jwt.payload.user,
+        authorizationId: authorization.id,
         app: jwt.payload.app,
         scopes: scope,
         type: 'refresh_token'
@@ -391,36 +382,35 @@ export async function revokeToken(token: string, credentials: string): Promise<b
         return false
     }
 
-    await prisma.userAuditLog.create({
-        data: {
-            type: 'deauthorizedApp',
-            userId: jwt.payload.user as number,
-            values: [app.id!.toString()]
-        }
-    })
-
-    await prisma.authorization.deleteMany({
-        where: {
-            userId: jwt.payload.user as number,
-            applicationId: jwt.payload.app as number
-        }
+    await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT 1 AS locked
+                           FROM pg_advisory_xact_lock(${jwt.payload.user as number}::int, ${app.id}::int)`
+        const grant = await findTokenAuthorization(jwt.payload, tx)
+        if (!grant) return
+        await tx.authorization.deleteMany({where: {id: grant.id, userId: grant.userId}})
+        await tx.userAuditLog.create({
+            data: {
+                type: 'deauthorizedApp', userId: grant.userId, values: [app.id.toString()]
+            }
+        })
     })
     return true
 }
 
 export async function revokeMyAuthorization(auth: Authorization): Promise<void> {
-    await prisma.authorization.deleteMany({
-        where: {
-            id: auth.id,
-            userId: await findUserOrThrow()
-        }
-    })
-    await prisma.userAuditLog.create({
-        data: {
-            type: 'deauthorizedApp',
-            userId: await findUserOrThrow(),
-            values: [auth.applicationId.toString()]
-        }
+    const userId = await findUserOrThrow()
+    const grant = await prisma.authorization.findFirst({where: {id: auth.id, userId}})
+    if (!grant) return
+    await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT 1 AS locked
+                           FROM pg_advisory_xact_lock(${userId}::int, ${grant.applicationId}::int)`
+        const removed = await tx.authorization.deleteMany({where: {id: grant.id, userId}})
+        if (removed.count === 0) return
+        await tx.userAuditLog.create({
+            data: {
+                type: 'deauthorizedApp', userId, values: [grant.applicationId.toString()]
+            }
+        })
     })
 }
 
@@ -462,18 +452,12 @@ export async function validateAccessToken(accessToken: string, scope: string[]):
             return false
         }
 
-        const authorization = await prisma.authorization.findFirst({
-            where: {
-                userId: jwt.payload.user as number,
-                applicationId: jwt.payload.app as number
-            }
-        })
+        const authorization = await findTokenAuthorization(jwt.payload)
         if (authorization == null) {
             return false
         }
         const app = await prisma.application.findUnique({where: {id: jwt.payload.app as number}})
         if (!app || app.approved !== ApprovalStatus.approved || (app.accessGated && app.ownerId !== jwt.payload.user && !app.allowedUsers.includes(jwt.payload.user as number)) || !(jwt.payload.scopes as string[]).every(s => app.scopes.includes(s as Scope))) return false
-        // Ensure the token still matches the recorded grant.
         if (!(jwt.payload.scopes as string[]).every(s => authorization.scopes.includes(s))) {
             return false
         }
@@ -501,12 +485,7 @@ export async function authorizationFromHeader(request: NextRequest): Promise<Aut
         }
 
         if (!await validateAccessToken(auth.slice(7), [])) return null
-        return await prisma.authorization.findFirst({
-            where: {
-                userId: jwt.payload.user as number,
-                applicationId: jwt.payload.app as number
-            }
-        })
+        return await findTokenAuthorization(jwt.payload)
     } catch {
         return null
     }
@@ -514,4 +493,16 @@ export async function authorizationFromHeader(request: NextRequest): Promise<Aut
 
 function validPayload(payload: import('jose').JWTPayload): boolean {
     return Number.isSafeInteger(payload.user) && Number.isSafeInteger(payload.app) && Array.isArray(payload.scopes) && payload.scopes.every(s => typeof s === 'string') && typeof payload.exp === 'number'
+}
+
+async function findTokenAuthorization(payload: import('jose').JWTPayload, db: Pick<typeof prisma, 'authorization'> = prisma): Promise<Authorization | null> {
+    const id = payload.authorizationId
+    if (id !== undefined && !Number.isSafeInteger(id)) return null
+    return db.authorization.findFirst({
+        where: {
+            userId: payload.user as number,
+            applicationId: payload.app as number,
+            ...(id === undefined ? {legacyTokens: true} : {id: id as number})
+        }
+    })
 }

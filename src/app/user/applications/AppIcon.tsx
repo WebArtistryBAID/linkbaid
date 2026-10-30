@@ -31,7 +31,6 @@ function WrappedAppIcon({app, size, uploadable = false}: {
             <p className={`${size == 'small' ? 'text-sm' : 'text-xl'} font-bold font-display`}>{app.name[0]}</p>
         </div>
     } else {
-        // We are intentionally not using Image because it causes caching issues
         // eslint-disable-next-line @next/next/no-img-element
         base = <img src={`/uploads${app.icon}`} alt={app.name} width={512} height={512}
                     className={`${size == 'small' ? 'w-8 h-8' : 'w-16 h-16'} aspect-square rounded-full object-cover object-center`}/>

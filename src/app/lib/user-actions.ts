@@ -3,6 +3,7 @@
 import {Application, Authorization, Gender, User, UserType} from '@/generated/prisma/client'
 import {findUserOrThrow} from '@/app/lib/utils'
 import {cookies} from 'next/headers'
+import {revokeSession} from '@/app/lib/session-revocation'
 import {prisma} from '@/app/lib/prisma'
 
 export async function getMe(): Promise<User> {
@@ -117,6 +118,8 @@ export async function getMyAppsSecure(): Promise<Application[]> {
 
 export async function logOut(): Promise<void> {
     const c = await cookies()
+    const token = c.get('access_token')?.value
+    if (token) await revokeSession(token)
     c.delete('access_token')
 }
 

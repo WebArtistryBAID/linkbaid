@@ -6,6 +6,7 @@ import {Gender, UserAuditLogType, UserType} from '@/generated/prisma/client'
 import {createHash, createSecretKey, randomUUID} from 'node:crypto'
 import {allowLoginAttempt} from '@/app/lib/login-rate-limit'
 import {localRedirect} from '@/app/lib/redirect-target'
+import {hashCredential, verifyCredential} from '@/app/lib/credential-hash'
 import {prisma} from '@/app/lib/prisma'
 
 const secret = createSecretKey(process.env.JWT_SECRET!, 'utf-8')
@@ -38,6 +39,7 @@ async function issueInternalLogin(user: { seiueId: number, name: string, pinyin:
         pinyin: user.pinyin,
         type: 'internal'
     })
+        .setJti(randomUUID())
         .setIssuedAt()
         .setIssuer('https://beijing.academy')
         .setAudience('https://beijing.academy')
@@ -85,7 +87,7 @@ async function readFeishuState(state: string | null): Promise<string | null> {
 }
 
 export async function loginWithAccessCode(code: string): Promise<boolean> {
-    if (!await allowLoginAttempt()) return false
+    if (!await allowLoginAttempt(typeof code === 'string' ? code : undefined)) return false
     const head = await headers()
     const ip = head.get('X-Forwarded-For') ?? head.get('X-Real-IP') ?? 'localhost'
     if (typeof code !== 'string' || code.length < 1 || code.length > 512 || code.startsWith('oauth:')) {
@@ -93,10 +95,10 @@ export async function loginWithAccessCode(code: string): Promise<boolean> {
     }
     const access = await prisma.accessCode.findFirst({
         where: {
-            code
+            code: hashCredential(code)
         }
     })
-    if (access == null) {
+    if (access == null || !verifyCredential(code, access.code)) {
         return false
     }
     const user = await prisma.user.findUnique({

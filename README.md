@@ -2,7 +2,7 @@
 
 # LinkBAID
 
-A unified OAuth2 server for BAID's Seiue LMS and Feishu logins.
+BAID's backbone: A unified OAuth2 server for BAID's Seiue LMS and Feishu logins.
 
 Used by WebArtistryBAID/[helium](https://github.com/WebArtistryBAID/helium),
 WebArtistryBAID/[whale](https://github.com/WebArtistryBAID/whale),
@@ -20,6 +20,16 @@ WebArtistryBAID/[baid-speaker](https://github.com/WebArtistryBAID/baid-speaker),
 </div>
 
 ## Overview
+
+* At BAID, students use Seiue LMS to authorize to school services, and faculty uses Feishu. This custom OAuth2 server is
+  designed to integrate BAID's Seiue LMS and Feishu logins into a single system, so that individual services do not have
+  to integrate both systems.
+* As a developer, you can press Ctrl+D on the LinkBAID homepage after logging in to create an OAuth2 application. After
+  setting up the redirect URIs, terms of service/privacy policy pages, homepage URI, description, and scopes, you can
+  start accepting authorizations from users.
+* As a user, you can log in to any service that uses LinkBAID with your school credentials easily. You can also manage
+  your authorizations in the home page.
+* Applications can be restricted so that only specific users can authorize.
 
 ## Development
 
@@ -41,7 +51,9 @@ To run in development:
 
 ### Database Migrations
 
-* After pulling someone else's migrations, run `prisma migrate deploy`, then `prisma generate`.
+* After pulling migrations, run `prisma migrate deploy`, then `prisma generate`.
+* Set `TRUSTED_CLIENT_IP_HEADER=x-real-ip` only when the reverse proxy overwrites that header, as in the Nginx example.
+  A shared database counter enforces a global login limit even when this variable is empty.
 * To create your own migration, edit `prisma/schema.prisma` and run `prisma migrate dev --name describe_change`. Commit
   the schema and the entire `prisma/migrations/` directory together.
 * On production, run `prisma migrate deploy`, then `prisma generate` before building and restarting Project Whale.
