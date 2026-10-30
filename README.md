@@ -107,8 +107,6 @@ server {
 | `UPLOAD_SERVE_PATH` | The path where uploaded files are served. In development, this is `uploads`.             |
 | `BOTTOM_TEXT`       | In case you need this.                                                                   |
 
-* Run `npm run dev`.
-
 ## Contribution
 
 To contribute, simply open a pull request.
